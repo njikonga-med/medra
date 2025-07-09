@@ -207,7 +207,44 @@ class ArticleMedraXmlFilter extends O4DOIXmlFilter
         if (!empty($submissionGalleys)) {
             $this->appendTextMiningCollectionNodes($doc, $articleNode, $article, $submissionGalleys);
         }
+        // Journal Issue initialization (mandatory)
+        $issueId = $article->getCurrentPublication()->getData('issueId');
+        if ($cache->isCached('issues', $issueId)) {
+            /** @var Issue $issue */
+            $issue = $cache->get('issues', $issueId);
+        } else {
+            $issue = Repo::issue()->get($issueId, $context->getId());
+            if ($issue) $cache->add($issue, null);
+        }
+        $journalId = $issue->getData('journalId');
+        // Access Indicators
+        if(!empty($journalId)){
+            $accessRights = null;
+			$journalDao = DAORegistry::getDAO('JournalDAO'); /** @var JournalDAO $journalDao */
+			$journal = $journalDao->getById($journalId);
+			if($journal->getData('publishingMode') == 0){
+				$accessRights = 'openAccess';
+			} else if($journal->getData('publishingMode') == 1) {
+				if ($issue->getAccessStatus() == 1) {
+					$accessRights = 'openAccess';
+				} else if ($issue->getAccessStatus() == 2) {
+					if ($article->getCurrentPublication()->getData('accessStatus') == 1) {
+						$accessRights = 'openAccess';
+					}
+				}
+			}
 
+            if($accessRights == 'openAccess' || !empty($journal->getData('licenseUrl'))){
+				$accessIndicatorsNode = $doc->createElementNS($deployment->getNamespace(), 'AccessIndicators');
+				if($accessRights == 'openAccess'){
+					$accessIndicatorsNode->appendChild($node = $doc->createElementNS($deployment->getNamespace(), 'FreeToRead'));
+				}
+				if($journal->getData('licenseUrl') != ''){
+					$accessIndicatorsNode->appendChild($node = $doc->createElementNS($deployment->getNamespace(), 'License', $journal->getData('licenseUrl')));
+				}
+				$articleNode->appendChild($accessIndicatorsNode);
+			}
+        }
         // DOI strucural type
         $articleNode->appendChild($node = $doc->createElementNS($deployment->getNamespace(), 'DOIStructuralType', $this->getDOIStructuralType()));
         // Registrant (mandatory)
@@ -223,14 +260,6 @@ class ArticleMedraXmlFilter extends O4DOIXmlFilter
         // Serial Publication (mandatory)
         $articleNode->appendChild($this->createSerialPublicationNode($doc, $journalLocalePrecedence, $epubFormat));
         // Journal Issue (mandatory)
-        $issueId = $article->getCurrentPublication()->getData('issueId');
-        if ($cache->isCached('issues', $issueId)) {
-            /** @var Issue $issue */
-            $issue = $cache->get('issues', $issueId);
-        } else {
-            $issue = Repo::issue()->get($issueId, $context->getId());
-            if ($issue) $cache->add($issue, null);
-        }
         $articleNode->appendChild($this->createJournalIssueNode($doc, $issue, $journalLocalePrecedence));
 
         // Object locale precedence.
